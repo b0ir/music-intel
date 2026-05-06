@@ -13,3 +13,4 @@ build/
 venv/
 /tmp/music_intel_export.*
 ~/.music_intel/
+.cache
