@@ -1,7 +1,17 @@
 import pytest
-from playwright.async_api import Page, expect
+from playwright.async_api import Page, expect, async_playwright
 
 BASE_URL = "http://localhost:7860"
+
+
+@pytest.fixture(scope="function")
+async def page():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page_obj = await browser.new_page()
+        yield page_obj
+        await browser.close()
+        await p.stop()
 
 
 @pytest.mark.asyncio
