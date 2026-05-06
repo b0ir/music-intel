@@ -75,21 +75,43 @@ def get_recommendations(artist_name: str, limit: int = 10) -> list[Track]:
         if not items:
             return []
 
-        artist_id = items[0]["id"]
-        recs = sp.recommendations(seed_artists=[artist_id], limit=limit)
-        tracks = recs.get("tracks", [])
+        artist = items[0]
+        artist_id = artist["id"]
+        genres = artist.get("genres", [])
 
-        return [
-            Track(
-                id=t["id"],
-                name=t["name"],
-                artist=", ".join(a["name"] for a in t["artists"]),
-                album=t["album"]["name"] if t.get("album") else None,
-                preview_url=t.get("preview_url"),
-                spotify_url=t["external_urls"].get("spotify"),
-            )
-            for t in tracks
-        ]
+        related_artists = []
+        try:
+            related = sp.artist_related_artists(artist_id)
+            related_artists = related.get("artists", [])[:5]
+        except spotipy.exceptions.SpotifyException:
+            # Endpoint restricted for this app tier — fall back to genre search
+            if genres:
+                genre_q = sp.search(q=f"genre:{genres[0]}", type="artist", limit=6)
+                related_artists = [
+                    a for a in genre_q["artists"]["items"] if a["id"] != artist_id
+                ][:5]
+
+        tracks: list[Track] = []
+        for ra in related_artists:
+            if len(tracks) >= limit:
+                break
+            try:
+                top = sp.artist_top_tracks(ra["id"], country="US")
+                for t in top.get("tracks", [])[:2]:
+                    if len(tracks) >= limit:
+                        break
+                    tracks.append(Track(
+                        id=t["id"],
+                        name=t["name"],
+                        artist=", ".join(a["name"] for a in t["artists"]),
+                        album=t["album"]["name"] if t.get("album") else None,
+                        preview_url=t.get("preview_url"),
+                        spotify_url=t["external_urls"].get("spotify"),
+                    ))
+            except spotipy.exceptions.SpotifyException:
+                continue
+
+        return tracks
     except (KeyError, spotipy.exceptions.SpotifyException):
         return []
 

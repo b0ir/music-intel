@@ -119,9 +119,9 @@ def analyze_artist(
     use_musicbrainz: bool,
     use_lastfm: bool,
     use_discogs: bool,
-) -> tuple[str, str]:
+) -> tuple[str, str, list]:
     if not artist_name.strip():
-        return "Please enter an artist name.", ""
+        return "Please enter an artist name.", "", []
 
     enabled = []
     flags = _source_flags()
@@ -135,7 +135,7 @@ def analyze_artist(
             enabled.append(src)
 
     if not enabled:
-        return "Select at least one configured data source.", ""
+        return "Select at least one configured data source.", "", []
 
     conn = db.connect()
     db.clear_artist_data(conn)
@@ -152,27 +152,80 @@ def analyze_artist(
     _state["validation_summary"] = summary
     _state["report"] = None
 
+    # Source status
     source_lines = []
     for src in enabled:
-        count = summary["source_coverage"].get(src, 0)
         err = errors.get(src)
+        rel_n = summary["release_coverage"].get(src, 0)
         if err:
-            source_lines.append(f"❌ **{src}:** {err}")
-        elif count:
-            source_lines.append(f"✅ **{src}:** {count} record(s)")
+            source_lines.append(f"❌ **{src.capitalize()}:** {err}")
+        elif summary["source_coverage"].get(src, 0):
+            source_lines.append(f"✅ **{src.capitalize()}** — {rel_n} releases")
         else:
-            source_lines.append(f"⚠️ **{src}:** no results found")
+            source_lines.append(f"⚠️ **{src.capitalize()}:** no results")
 
-    release_counts = "\n".join(f"- {src}: {n}" for src, n in summary["release_coverage"].items())
-    conflicts_note = f"⚠️ {summary['conflict_count']} conflict(s) detected" if summary["conflict_count"] else "✅ No conflicts"
+    # Artist metadata from all fetched sources
+    artist_by_source = {r["source"]: r for r in summary["artists"]}
+    meta_lines = []
+    def _fmt_genres(v):
+        return ", ".join(v) if isinstance(v, list) and v else None
+    for label, key, fmt in [
+        ("Genres",     "genres",       _fmt_genres),
+        ("Country",    "country",      lambda v: v or None),
+        ("Formed",     "formed_year",  lambda v: str(int(v)) if v else None),
+        ("Popularity", "popularity",   lambda v: f"{int(v)}/100" if v is not None else None),
+    ]:
+        parts = [f"{src}: {fmt(row.get(key))}"
+                 for src, row in artist_by_source.items()
+                 if fmt(row.get(key))]
+        if parts:
+            meta_lines.append(f"**{label}:** {' · '.join(parts)}")
 
-    data_panel = (
-        f"### Sources\n" + "\n".join(source_lines) + "\n\n"
-        f"### Releases\n{release_counts or '_None_'}\n\n"
-        f"### Data Quality\n{conflicts_note}"
+    # Release type breakdown from fetched releases
+    type_counts: dict[str, int] = {}
+    for r in summary["releases"]:
+        t = (r.get("type") or "other").lower()
+        type_counts[t] = type_counts.get(t, 0) + 1
+    total_releases = sum(summary["release_coverage"].values())
+    type_str = " · ".join(
+        f"{n} {t}{'s' if n != 1 else ''}"
+        for t, n in sorted(type_counts.items(), key=lambda x: -x[1])
     )
 
-    return "_Data fetched — click **Generate Report** to run AI analysis._", data_panel
+    # Five most recent releases, de-duplicated by title
+    seen_titles: set[str] = set()
+    recent: list[dict] = []
+    for r in summary["releases"]:  # already sorted year DESC
+        key = r["title"].lower().strip()
+        if key not in seen_titles:
+            seen_titles.add(key)
+            recent.append(r)
+        if len(recent) >= 5:
+            break
+    recent_md = "\n".join(
+        f"- **{r['title']}** ({r['year'] or '?'}) — {r.get('type') or 'release'}"
+        for r in recent
+    )
+
+    # Conflicts
+    if summary["conflict_count"]:
+        conflict_lines = "\n".join(
+            f"- `{c['field']}`: {c['source_a']}=`{c['value_a']}` vs {c['source_b']}=`{c['value_b']}`"
+            for c in summary["conflicts"]
+        )
+        quality_note = f"⚠️ {summary['conflict_count']} conflict(s):\n{conflict_lines}"
+    else:
+        quality_note = "✅ No conflicts between sources"
+
+    data_panel = (
+        "### Sources\n" + "\n".join(source_lines)
+        + ("\n\n### Artist Info\n" + "\n".join(meta_lines) if meta_lines else "")
+        + f"\n\n### Releases ({total_releases} total)\n" + (type_str or "_None_")
+        + ("\n\n### Recent\n" + recent_md if recent_md else "")
+        + "\n\n### Data Quality\n" + quality_note
+    )
+
+    return "_Data fetched — click **Generate Report** to run AI analysis._", data_panel, []
 
 
 def generate_report_action(provider: str, model: str, api_key: str) -> str:
@@ -194,27 +247,31 @@ def generate_report_action(provider: str, model: str, api_key: str) -> str:
         return f"Error generating report: {e}"
 
 
-def chat_action(
-    message: str,
+def _add_user_message(message: str, history: list[dict]) -> tuple[str, list[dict]]:
+    """Step 1: immediately render the user's message in the chatbot."""
+    if not message.strip():
+        return message, history
+    return "", history + [{"role": "user", "content": message}]
+
+
+def _chat_respond(
     history: list[dict],
     provider: str,
     model: str,
     api_key: str,
-) -> tuple[str, list[dict]]:
-    if not message.strip():
-        return "", history
+) -> list[dict]:
+    """Step 2: call the AI and append its reply."""
+    if not history or history[-1]["role"] != "user":
+        return history
+    message = history[-1]["content"]
     if not _state.get("report"):
-        return "", history + [{"role": "assistant", "content": "Generate a report first."}]
+        return history + [{"role": "assistant", "content": "Generate a report first."}]
     if not api_key.strip():
-        return "", history + [{"role": "assistant", "content": "Enter your API key in Settings."}]
+        return history + [{"role": "assistant", "content": "Enter your API key in Settings."}]
     try:
-        formatted_history = [
-            {"role": m["role"], "content": m["content"]}
-            for m in history
-        ]
         reply = analyst.chat(
             user_message=message,
-            history=formatted_history,
+            history=history[:-1],
             artist_name=_state["artist_name"],
             report=_state["report"],
             validation_summary=_state["validation_summary"],
@@ -222,9 +279,9 @@ def chat_action(
             model=model,
             api_key=api_key,
         )
-        return "", history + [{"role": "assistant", "content": reply}]
+        return history + [{"role": "assistant", "content": reply}]
     except Exception as e:
-        return "", history + [{"role": "assistant", "content": f"Error: {e}"}]
+        return history + [{"role": "assistant", "content": f"Error: {e}"}]
 
 
 def export_csv_action() -> str | None:
@@ -435,7 +492,7 @@ def build_app() -> gr.Blocks:
         analyze_btn.click(
             analyze_artist,
             inputs=[artist_input, use_spotify, use_mb, use_lastfm, use_discogs],
-            outputs=[report_output, data_panel],
+            outputs=[report_output, data_panel, chatbot],
         )
 
         generate_btn.click(
@@ -451,15 +508,23 @@ def build_app() -> gr.Blocks:
         )
 
         chat_send.click(
-            chat_action,
-            inputs=[chat_input, chatbot, provider_dropdown, model_dropdown, api_key_input],
+            _add_user_message,
+            inputs=[chat_input, chatbot],
             outputs=[chat_input, chatbot],
+        ).then(
+            _chat_respond,
+            inputs=[chatbot, provider_dropdown, model_dropdown, api_key_input],
+            outputs=[chatbot],
         )
 
         chat_input.submit(
-            chat_action,
-            inputs=[chat_input, chatbot, provider_dropdown, model_dropdown, api_key_input],
+            _add_user_message,
+            inputs=[chat_input, chatbot],
             outputs=[chat_input, chatbot],
+        ).then(
+            _chat_respond,
+            inputs=[chatbot, provider_dropdown, model_dropdown, api_key_input],
+            outputs=[chatbot],
         )
 
         export_csv_btn.click(export_csv_action, outputs=[csv_file]).then(
