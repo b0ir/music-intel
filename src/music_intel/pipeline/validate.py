@@ -94,6 +94,20 @@ def get_validation_summary(conn: duckdb.DuckDBPyConnection) -> dict:
     conflicts = detect_cross_source_conflicts(conn)
     duplicate_releases = check_duplicate_releases(conn)
 
+    releases_df = conn.execute("""
+        SELECT title, year, type, source, track_count
+        FROM releases
+        WHERE year IS NOT NULL
+        ORDER BY year DESC
+        LIMIT 50
+    """).df()
+
+    artists_df = conn.execute("""
+        SELECT name, source, country, formed_year, genres, popularity
+        FROM artists
+        LIMIT 50
+    """).df()
+
     return {
         "source_coverage": source_coverage,
         "release_coverage": release_coverage,
@@ -108,4 +122,6 @@ def get_validation_summary(conn: duckdb.DuckDBPyConnection) -> dict:
             for c in conflicts
         ],
         "duplicate_releases": duplicate_releases.to_dict("records"),
+        "releases": releases_df.to_dict("records"),
+        "artists": artists_df.to_dict("records"),
     }

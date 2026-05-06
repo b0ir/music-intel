@@ -12,8 +12,9 @@ def _call(
     api_key: str,
 ) -> str:
     conf = PROVIDERS[provider]
+    full_model = f"{provider}/{model}" if conf["base_url"] else model
     kwargs = dict(
-        model=f"{provider}/{model}",
+        model=full_model,
         messages=messages,
         api_key=api_key,
     )

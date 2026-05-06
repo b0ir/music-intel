@@ -196,20 +196,21 @@ def generate_report_action(provider: str, model: str, api_key: str) -> str:
 
 def chat_action(
     message: str,
-    history: list,
+    history: list[dict],
     provider: str,
     model: str,
     api_key: str,
-) -> tuple[str, list]:
+) -> tuple[str, list[dict]]:
+    if not message.strip():
+        return "", history
     if not _state.get("report"):
-        return "", history + [[message, "Generate a report first."]]
+        return "", history + [{"role": "assistant", "content": "Generate a report first."}]
     if not api_key.strip():
-        return "", history + [[message, "Enter your API key in Settings."]]
+        return "", history + [{"role": "assistant", "content": "Enter your API key in Settings."}]
     try:
         formatted_history = [
-            {"role": role, "content": msg}
-            for pair in history
-            for role, msg in zip(["user", "assistant"], pair)
+            {"role": m["role"], "content": m["content"]}
+            for m in history
         ]
         reply = analyst.chat(
             user_message=message,
@@ -221,9 +222,9 @@ def chat_action(
             model=model,
             api_key=api_key,
         )
-        return "", history + [[message, reply]]
+        return "", history + [{"role": "assistant", "content": reply}]
     except Exception as e:
-        return "", history + [[message, f"Error: {e}"]]
+        return "", history + [{"role": "assistant", "content": f"Error: {e}"}]
 
 
 def export_csv_action() -> str | None:
@@ -340,7 +341,9 @@ def build_app() -> gr.Blocks:
                     )
                     with gr.Column(scale=1):
                         data_panel = gr.Markdown(label="Source Data")
-                        generate_btn = gr.Button("Generate Report", variant="secondary")
+                        with gr.Row():
+                            generate_btn = gr.Button("Generate Report", variant="secondary")
+                            generate_spinner = gr.HTML(visible=False)
 
                 with gr.Row():
                     export_csv_btn = gr.Button("Export CSV")
@@ -357,9 +360,20 @@ def build_app() -> gr.Blocks:
                         placeholder="Ask about the data...",
                         scale=4,
                     )
-                    chat_send = gr.Button("Send", scale=1)
+                    with gr.Column(scale=1):
+                        chat_send = gr.Button("Send", scale=1, interactive=False)
+                        chat_spinner = gr.HTML(
+                            """<span style="font-size:12px">⚡ processing...</span>""",
+                            visible=False
+                        )
 
-            # ── Discover ─────────────────────────────────────────────────
+                # Enable/disable send button based on input
+                chat_input.change(
+                    lambda msg: gr.update(interactive=bool(msg and msg.strip())),
+                    inputs=[chat_input],
+                    outputs=[chat_send],
+                )
+
             with gr.Tab("Discover"):
                 gr.Markdown(
                     "Spotify recommendations based on the last analyzed artist.\n\n"
@@ -373,7 +387,6 @@ def build_app() -> gr.Blocks:
                 recommendations_output = gr.Markdown()
                 ai_explanation = gr.Markdown()
 
-            # ── Settings ─────────────────────────────────────────────────
             with gr.Tab("Settings"):
                 gr.Markdown("### AI Provider")
                 provider_dropdown = gr.Dropdown(
@@ -426,9 +439,15 @@ def build_app() -> gr.Blocks:
         )
 
         generate_btn.click(
+            lambda: (gr.update(visible=True), "_Generating report..._"),
+            outputs=[generate_spinner, report_output],
+        ).then(
             generate_report_action,
             inputs=[provider_dropdown, model_dropdown, api_key_input],
             outputs=[report_output],
+        ).then(
+            lambda: gr.update(visible=False),
+            outputs=[generate_spinner],
         )
 
         chat_send.click(
