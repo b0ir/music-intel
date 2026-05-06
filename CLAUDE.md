@@ -1,36 +1,46 @@
 # CLAUDE.md
 
-This file provides guidance to Claude (or any AI assistant) on how to work with this project.
+## Git rules
 
-## Project Overview
+- Use conventional commit messages.
+- Always ask before committing. Never commit without explicit user approval.
+- Never push to GitHub without explicit user authorization.
 
-music-intel is a multi-source music intelligence tool that aggregates data from Spotify, MusicBrainz, Last.fm, and Discogs into a local DuckDB database with AI-powered analysis via LiteLLM.
+## Dev environment
 
-## Key Conventions
+- Python 3.14, venv at `.venv/`. Use `.venv/bin/python3`, not `python`.
+- Install: `pip install -e ".[dev]"` (editable + dev extras)
+- App runs at `http://localhost:7860`
 
-- Use conventional commit messages for Git Commits.
-- Ask before commiting, do not create commits of changes you did without user's approval.
-- ALWAYS ask for explicit authorization before pushing to GitHub. Never auto-push.
+## Verify the app compiles
 
-## Common Tasks
-
-### Running Tests
+Always run this after editing `app.py` or any imported module:
 
 ```bash
-# Unit + Integration
+.venv/bin/python3 -c "from music_intel.app import build_app; build_app(); print('OK')"
+```
+
+## Architecture
+
+```
+sources/        → one fetch_artist(name) per API, returns (ArtistProfile, [Release])
+pipeline/
+  ingest.py     → runs all sources in parallel via ThreadPoolExecutor + asyncio
+  validate.py   → DuckDB queries: row counts, nulls, cross-source conflicts
+storage/db.py   → DuckDB schema + CRUD (stored at ~/.music_intel/data.duckdb)
+ai/
+  providers.py  → PROVIDERS dict: all AI provider configs (models, base_url, env_key)
+  analyst.py    → LiteLLM calls: generate_report(), chat(), explain_recommendations()
+app.py          → Gradio UI + all action handlers
+```
+
+## AI provider pattern
+
+All AI calls go through `analyst._call()` which uses LiteLLM with `model="{provider}/{model}"`. Provider configs (base_url, env_key, model list) live in `ai/providers.py`. Adding a new provider means adding one entry to `PROVIDERS` — nothing else needs changing.
+
+## Tests
+
+```bash
 pytest tests/unit tests/integration -v
-
-# E2E (requires app running)
-python -m music_intel.app &
-pytest tests/e2e -v
+pytest tests/e2e -v  # requires app running at :7860
 ```
-
-### Running App
-
-```bash
-python -m music_intel.app
-```
-
-### Environment Variables
-
-See `.env.example` for required keys. Never commit actual API keys.
