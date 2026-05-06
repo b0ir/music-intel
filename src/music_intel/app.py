@@ -3,6 +3,7 @@ import json
 import io
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -139,7 +140,9 @@ def analyze_artist(
     conn = db.connect()
     db.clear_artist_data(conn)
 
-    profiles, releases, errors = asyncio.run(fetch_all_sources(artist_name, enabled))
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(asyncio.run, fetch_all_sources(artist_name, enabled))
+        profiles, releases, errors = future.result()
 
     db.upsert_artists(conn, profiles)
     db.upsert_releases(conn, releases)
