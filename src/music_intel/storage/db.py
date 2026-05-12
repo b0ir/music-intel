@@ -55,7 +55,8 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             value_a VARCHAR,
             source_b VARCHAR NOT NULL,
             value_b VARCHAR,
-            detected_at TIMESTAMP DEFAULT NOW()
+            detected_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE (entity_type, field_name, source_a, source_b, value_a, value_b)
         )
     """)
 
@@ -69,10 +70,19 @@ def upsert_artists(conn: duckdb.DuckDBPyConnection, profiles: list[ArtistProfile
         for p in profiles
     ]
     conn.executemany("""
-        INSERT OR REPLACE INTO artists
+        INSERT INTO artists
             (id, name, source, genres, country, formed_year, popularity,
              listeners_lastfm, play_count_lastfm, image_url)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id, source) DO UPDATE SET
+            name = EXCLUDED.name,
+            genres = EXCLUDED.genres,
+            country = EXCLUDED.country,
+            formed_year = EXCLUDED.formed_year,
+            popularity = EXCLUDED.popularity,
+            listeners_lastfm = EXCLUDED.listeners_lastfm,
+            play_count_lastfm = EXCLUDED.play_count_lastfm,
+            image_url = EXCLUDED.image_url
     """, rows)
 
 
@@ -85,10 +95,19 @@ def upsert_releases(conn: duckdb.DuckDBPyConnection, releases: list[Release]) ->
         for r in releases
     ]
     conn.executemany("""
-        INSERT OR REPLACE INTO releases
+        INSERT INTO releases
             (id, artist_id, title, type, year, source, track_count,
              discogs_price_median, discogs_have, discogs_want)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id, source) DO UPDATE SET
+            artist_id = EXCLUDED.artist_id,
+            title = EXCLUDED.title,
+            type = EXCLUDED.type,
+            year = EXCLUDED.year,
+            track_count = EXCLUDED.track_count,
+            discogs_price_median = EXCLUDED.discogs_price_median,
+            discogs_have = EXCLUDED.discogs_have,
+            discogs_want = EXCLUDED.discogs_want
     """, rows)
 
 
@@ -102,6 +121,8 @@ def insert_conflicts(conn: duckdb.DuckDBPyConnection, conflicts: list[Conflict])
     conn.executemany("""
         INSERT INTO conflicts (entity_type, field_name, source_a, value_a, source_b, value_b)
         VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (entity_type, field_name, source_a, source_b, value_a, value_b)
+        DO UPDATE SET detected_at = NOW()
     """, rows)
 
 
