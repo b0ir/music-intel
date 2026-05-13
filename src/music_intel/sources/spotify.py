@@ -3,6 +3,8 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from music_intel.models import ArtistProfile, Release, Track
 
+_SPOTIFY_MARKET = os.environ.get("SPOTIFY_MARKET", "US")
+
 _client: spotipy.Spotify | None = None
 
 
@@ -96,7 +98,7 @@ def get_recommendations(artist_name: str, limit: int = 10) -> list[Track]:
             if len(tracks) >= limit:
                 break
             try:
-                top = sp.artist_top_tracks(ra["id"], country="US")
+                top = sp.artist_top_tracks(ra["id"], country=_SPOTIFY_MARKET)
                 for t in top.get("tracks", [])[:2]:
                     if len(tracks) >= limit:
                         break
