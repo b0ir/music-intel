@@ -26,7 +26,7 @@ Artist search → fetch all sources in parallel → DuckDB → AI report + chat 
 ```bash
 git clone https://github.com/b0ir/music-intel
 cd music-intel
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv
 pip install -e .
 cp .env.example .env   # fill in at least one music source key and one AI provider key
 ```
@@ -35,7 +35,10 @@ cp .env.example .env   # fill in at least one music source key and one AI provid
 
 ### Run
 
+Do this every time you open a new terminal:
+
 ```bash
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 python -m music_intel.app
 ```
 
