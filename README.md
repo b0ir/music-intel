@@ -19,16 +19,30 @@ Artist search → fetch all sources in parallel → DuckDB → AI report + chat 
 
 ## Quick start
 
+**Requires Python 3.10+**
+
+### Installation
+
 ```bash
 git clone https://github.com/b0ir/music-intel
 cd music-intel
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv
 pip install -e .
-cp .env.example .env   # add your API keys
+cp .env.example .env   # fill in at least one music source key and one AI provider key
+```
+
+> **No keys yet?** MusicBrainz requires no API key and is always enabled. You can run the app and search artists immediately — add Spotify and an AI provider key later to unlock the full feature set.
+
+### Run
+
+Do this every time you open a new terminal:
+
+```bash
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 python -m music_intel.app
 ```
 
-Open `http://localhost:7860`.
+Open **http://localhost:7860**, search an artist, and click **Fetch**.
 
 ## API keys
 
