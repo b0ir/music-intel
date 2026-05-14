@@ -1,5 +1,7 @@
 # music-intel (WIP)
 
+
+[![CI](https://github.com/b0ir/music-intel/actions/workflows/ci.yml/badge.svg)](https://github.com/b0ir/music-intel/actions/workflows/ci.yml)
 Multi-source music intelligence tool. Search any artist and get aggregated data from Spotify, MusicBrainz, Last.fm and Discogs — stored locally in DuckDB — with an AI-powered report and follow-up chat. Work in progress.
 
 ```
